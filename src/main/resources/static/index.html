@@ -1,0 +1,353 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<title>Log Analyzer</title>
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+<style>
+
+/* ===== THEME ===== */
+:root {
+    --bg: #f3f4f6;         /* light grey background */
+    --card: #ffffff;       /* white cards */
+    --text: #1f2937;       /* dark text */
+    --muted: #6b7280;     /* grey text */
+    --blue: #1e3a8a;       /* dark blue accent */
+    --border: #d1d5db;    /* soft grey border */
+}
+
+/* ===== BASE ===== */
+body {
+    margin: 0;
+    font-family: Arial;
+    background: var(--bg);
+    color: var(--text);
+}
+
+/* ===== TOP BAR ===== */
+.topbar {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 12px 16px;
+    background: var(--card);
+    border-bottom: 1px solid var(--border);
+}
+
+.topbar input {
+    padding: 8px;
+    width: 260px;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    outline: none;
+}
+
+/* ===== LAYOUT ===== */
+.container {
+    display: flex;
+    height: calc(100vh - 55px);
+}
+
+/* ===== LEFT ===== */
+.left {
+    width: 260px;
+    background: var(--card);
+    border-right: 1px solid var(--border);
+    padding: 12px;
+    overflow-y: auto;
+}
+
+.title {
+    font-size: 13px;
+    color: var(--muted);
+    margin-bottom: 10px;
+}
+
+/* CODE ITEMS */
+.code-item {
+    background: var(--bg);
+    padding: 10px;
+    margin-bottom: 8px;
+    border-radius: 8px;
+    cursor: pointer;
+    border: 1px solid var(--border);
+    transition: 0.2s;
+}
+
+.code-item:hover {
+    border-color: var(--blue);
+}
+
+/* ===== RIGHT ===== */
+.right {
+    flex: 1;
+    padding: 15px;
+    overflow-y: auto;
+}
+
+/* ===== CARDS ===== */
+.card {
+    background: var(--card);
+    padding: 14px;
+    border-radius: 10px;
+    margin-bottom: 15px;
+    border: 1px solid var(--border);
+    box-shadow: 0 2px 6px rgba(0,0,0,0.05);
+}
+
+/* FILE ITEMS */
+.file-item {
+    padding: 8px;
+    margin: 5px 0;
+    background: var(--bg);
+    border-radius: 6px;
+    cursor: pointer;
+    border-left: 3px solid var(--blue);
+}
+
+.file-item:hover {
+    background: #e8eefc;
+}
+
+/* LOG VIEWER */
+pre {
+    background: #111827;
+    color: #d1fae5;
+    padding: 12px;
+    border-radius: 10px;
+    max-height: 320px;
+    overflow-y: auto;
+}
+
+/* BUTTON */
+button {
+    padding: 8px 12px;
+    border: none;
+    border-radius: 6px;
+    background: var(--blue);
+    color: white;
+    cursor: pointer;
+}
+
+button:hover {
+    background: #172554;
+}
+
+/* CHART SIZE */
+.chart-box {
+    width: 240px;
+    height: 240px;
+}
+
+</style>
+</head>
+
+<body>
+
+<!-- TOP BAR -->
+<div class="topbar">
+
+    <div>
+        📁 <input type="file" id="fileInput" multiple />
+        <button onclick="uploadFiles()">Upload</button>
+    </div>
+
+    <div>
+        🔍 <input type="text" id="searchBox" placeholder="Search logs / files..." onkeyup="searchLogs()" />
+    </div>
+
+</div>
+
+<div class="container">
+
+    <!-- LEFT -->
+    <div class="left">
+        <div class="title">ERROR CODES</div>
+        <div id="summary"></div>
+    </div>
+
+    <!-- RIGHT -->
+    <div class="right">
+
+        <div class="card">
+            <div class="title">ERROR DISTRIBUTION</div>
+            <div class="chart-box">
+                <canvas id="errorChart"></canvas>
+            </div>
+        </div>
+
+        <div class="card">
+            <div class="title">FILES</div>
+            <div id="files"></div>
+        </div>
+
+        <div class="card">
+            <div class="title">LOG VIEWER</div>
+            <pre id="content">Upload logs to start analysis...</pre>
+        </div>
+
+    </div>
+
+</div>
+
+<script>
+
+let allLogs = [];
+let fileCache = [];
+let selectedCode = null;
+let chartInstance = null;
+
+/* UPLOAD */
+function uploadFiles() {
+
+    const files = document.getElementById("fileInput").files;
+    const formData = new FormData();
+
+    for (let f of files) {
+        formData.append("files", f);
+    }
+
+    fetch("/upload/files", {
+        method: "POST",
+        body: formData
+    })
+    .then(res => res.json())
+    .then(data => {
+
+        allLogs = data.issues || [];
+
+        renderSummary(data.summary);
+        renderChart(data.summary.codeCount || {});
+    });
+}
+
+/* SUMMARY */
+function renderSummary(summary) {
+
+    const codes = summary.codeCount || {};
+    let html = "";
+
+    Object.keys(codes).forEach(code => {
+        html += `
+            <div class="code-item" onclick="loadFiles(${code})">
+                <b>${code}</b> <br>
+                <small>${codes[code]} logs</small>
+            </div>
+        `;
+    });
+
+    document.getElementById("summary").innerHTML = html;
+}
+
+/* LOAD FILES */
+function loadFiles(code) {
+
+    selectedCode = code;
+
+    fetch(`/logs/code/${code}`)
+        .then(res => res.json())
+        .then(files => {
+            fileCache = files;
+            renderFiles(files, code);
+        });
+}
+
+/* FILE LIST */
+function renderFiles(files, code) {
+
+    let html = `<b>Files for Code ${code}</b><br><br>`;
+
+    files.forEach(f => {
+        html += `<div class="file-item" onclick="openFile('${f}')">📄 ${f}</div>`;
+    });
+
+    document.getElementById("files").innerHTML = html;
+}
+
+/* OPEN FILE */
+function openFile(file) {
+
+    fetch(`/logs/file/${encodeURIComponent(file)}`)
+        .then(res => res.text())
+        .then(data => {
+            document.getElementById("content").innerText = data;
+        });
+}
+
+/* SEARCH */
+function searchLogs() {
+
+    const text = document.getElementById("searchBox").value.toLowerCase();
+
+    if (!text) {
+        if (selectedCode !== null) loadFiles(selectedCode);
+        return;
+    }
+
+    const matchedFiles = fileCache.filter(f =>
+        f.toLowerCase().includes(text)
+    );
+
+    const matchedLogs = allLogs.filter(l =>
+        (l.logLine || "").toLowerCase().includes(text)
+    );
+
+    let html = "";
+
+    if (matchedFiles.length) {
+        html += "<b>Files</b><br>";
+        matchedFiles.forEach(f => {
+            html += `<div class="file-item" onclick="openFile('${f}')">📄 ${f}</div>`;
+        });
+    }
+
+    if (matchedLogs.length) {
+        html += "<br><b>Logs</b><br>";
+        matchedLogs.forEach(l => {
+            html += `<div>• [${l.errorCode}] ${l.logLine}</div>`;
+        });
+    }
+
+    document.getElementById("files").innerHTML = html;
+}
+
+/* CHART */
+function renderChart(data) {
+
+    if (chartInstance) chartInstance.destroy();
+
+    const labels = Object.keys(data);
+    const values = Object.values(data);
+
+    chartInstance = new Chart(
+        document.getElementById("errorChart"),
+        {
+            type: 'pie',
+            data: {
+                labels,
+                datasets: [{
+                    data: values,
+                    backgroundColor: [
+                        "#1e3a8a",
+                        "#2563eb",
+                        "#60a5fa",
+                        "#93c5fd",
+                        "#dbeafe",
+                        "#64748b"
+                    ]
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false
+            }
+        }
+    );
+}
+
+</script>
+
+</body>
+</html>
