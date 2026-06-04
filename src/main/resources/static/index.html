@@ -10,12 +10,12 @@
 
 /* ===== THEME ===== */
 :root {
-    --bg: #f3f4f6;         /* light grey background */
-    --card: #ffffff;       /* white cards */
-    --text: #1f2937;       /* dark text */
-    --muted: #6b7280;     /* grey text */
-    --blue: #1e3a8a;       /* dark blue accent */
-    --border: #d1d5db;    /* soft grey border */
+    --bg: #f3f4f6;
+    --card: #ffffff;
+    --text: #1f2937;
+    --muted: #6b7280;
+    --blue: #1e3a8a;
+    --border: #d1d5db;
 }
 
 /* ===== BASE ===== */
@@ -41,7 +41,6 @@ body {
     width: 260px;
     border: 1px solid var(--border);
     border-radius: 6px;
-    outline: none;
 }
 
 /* ===== LAYOUT ===== */
@@ -50,7 +49,7 @@ body {
     height: calc(100vh - 55px);
 }
 
-/* ===== LEFT ===== */
+/* LEFT */
 .left {
     width: 260px;
     background: var(--card);
@@ -59,13 +58,30 @@ body {
     overflow-y: auto;
 }
 
+/* RIGHT */
+.right {
+    flex: 1;
+    padding: 15px;
+    overflow-y: auto;
+}
+
+/* TITLES */
 .title {
     font-size: 13px;
     color: var(--muted);
     margin-bottom: 10px;
 }
 
-/* CODE ITEMS */
+/* CARDS */
+.card {
+    background: var(--card);
+    padding: 14px;
+    border-radius: 10px;
+    margin-bottom: 15px;
+    border: 1px solid var(--border);
+}
+
+/* CODE ITEM */
 .code-item {
     background: var(--bg);
     padding: 10px;
@@ -73,31 +89,13 @@ body {
     border-radius: 8px;
     cursor: pointer;
     border: 1px solid var(--border);
-    transition: 0.2s;
 }
 
 .code-item:hover {
     border-color: var(--blue);
 }
 
-/* ===== RIGHT ===== */
-.right {
-    flex: 1;
-    padding: 15px;
-    overflow-y: auto;
-}
-
-/* ===== CARDS ===== */
-.card {
-    background: var(--card);
-    padding: 14px;
-    border-radius: 10px;
-    margin-bottom: 15px;
-    border: 1px solid var(--border);
-    box-shadow: 0 2px 6px rgba(0,0,0,0.05);
-}
-
-/* FILE ITEMS */
+/* FILE ITEM */
 .file-item {
     padding: 8px;
     margin: 5px 0;
@@ -135,10 +133,19 @@ button:hover {
     background: #172554;
 }
 
-/* CHART SIZE */
+/* CHART */
 .chart-box {
-    width: 240px;
-    height: 240px;
+    width: 200px;
+    height: 200px;
+}
+
+/* ISSUES */
+.issue-card {
+    background: #f8fafc;
+    border-left: 4px solid var(--blue);
+    padding: 10px;
+    margin-bottom: 8px;
+    border-radius: 6px;
 }
 
 </style>
@@ -155,41 +162,52 @@ button:hover {
     </div>
 
     <div>
-        🔍 <input type="text" id="searchBox" placeholder="Search logs / files..." onkeyup="searchLogs()" />
+        🔍 <input type="text" id="searchBox" placeholder="Search..." onkeyup="searchLogs()" />
     </div>
 
 </div>
 
 <div class="container">
 
-    <!-- LEFT -->
-    <div class="left">
-        <div class="title">ERROR CODES</div>
-        <div id="summary"></div>
+<!-- LEFT -->
+<div class="left">
+    <div class="title">ERROR CODES</div>
+    <div id="summary"></div>
+</div>
+
+<!-- RIGHT -->
+<div class="right">
+
+    <!-- CHART -->
+    <div class="card">
+        <div class="title">ERROR DISTRIBUTION</div>
+        <div class="chart-box">
+            <canvas id="errorChart"></canvas>
+        </div>
     </div>
 
-    <!-- RIGHT -->
-    <div class="right">
+    <!-- FILES -->
+    <div class="card">
+        <div class="title">FILES</div>
+        <div id="files"></div>
+    </div>
 
-        <div class="card">
-            <div class="title">ERROR DISTRIBUTION</div>
-            <div class="chart-box">
-                <canvas id="errorChart"></canvas>
-            </div>
-        </div>
+    <!-- LOG + ISSUES -->
+    <div style="display:flex; gap:15px;">
 
-        <div class="card">
-            <div class="title">FILES</div>
-            <div id="files"></div>
-        </div>
-
-        <div class="card">
+        <div class="card" style="flex:2;">
             <div class="title">LOG VIEWER</div>
-            <pre id="content">Upload logs to start analysis...</pre>
+            <pre id="content">Upload logs...</pre>
+        </div>
+
+        <div class="card" style="flex:1;">
+            <div class="title">ISSUES</div>
+            <div id="issuesPanel">Click file</div>
         </div>
 
     </div>
 
+</div>
 </div>
 
 <script>
@@ -232,7 +250,7 @@ function renderSummary(summary) {
     Object.keys(codes).forEach(code => {
         html += `
             <div class="code-item" onclick="loadFiles(${code})">
-                <b>${code}</b> <br>
+                <b>${code}</b><br>
                 <small>${codes[code]} logs</small>
             </div>
         `;
@@ -241,7 +259,7 @@ function renderSummary(summary) {
     document.getElementById("summary").innerHTML = html;
 }
 
-/* LOAD FILES */
+/* FILES */
 function loadFiles(code) {
 
     selectedCode = code;
@@ -254,7 +272,6 @@ function loadFiles(code) {
         });
 }
 
-/* FILE LIST */
 function renderFiles(files, code) {
 
     let html = `<b>Files for Code ${code}</b><br><br>`;
@@ -266,13 +283,42 @@ function renderFiles(files, code) {
     document.getElementById("files").innerHTML = html;
 }
 
-/* OPEN FILE */
+/* OPEN FILE + ISSUES */
 function openFile(file) {
 
-    fetch(`/logs/file/${encodeURIComponent(file)}`)
+    const encoded = encodeURIComponent(file);
+
+    // LOG VIEWER
+    fetch(`/logs/file/${encoded}`)
         .then(res => res.text())
         .then(data => {
             document.getElementById("content").innerText = data;
+        });
+
+    // ISSUES PANEL
+    fetch(`/logs/file/${encoded}/issues`)
+        .then(res => res.json())
+        .then(issues => {
+
+            let html = "";
+
+            if (!issues || issues.length === 0) {
+                html = "<p>No issues found</p>";
+            } else {
+
+                issues.forEach(i => {
+                    html += `
+                        <div class="issue-card">
+                            <b>Code:</b> ${i.errorCode}<br>
+                            <b>Severity:</b> ${i.severity}<br>
+                            <b>Class:</b> ${i.className || 'N/A'}<br>
+                            <b>Exception:</b> ${i.logLine}
+                        </div>
+                    `;
+                });
+            }
+
+            document.getElementById("issuesPanel").innerHTML = html;
         });
 }
 
@@ -286,9 +332,7 @@ function searchLogs() {
         return;
     }
 
-    const matchedFiles = fileCache.filter(f =>
-        f.toLowerCase().includes(text)
-    );
+    const matchedFiles = fileCache.filter(f => f.toLowerCase().includes(text));
 
     const matchedLogs = allLogs.filter(l =>
         (l.logLine || "").toLowerCase().includes(text)
@@ -318,25 +362,14 @@ function renderChart(data) {
 
     if (chartInstance) chartInstance.destroy();
 
-    const labels = Object.keys(data);
-    const values = Object.values(data);
-
     chartInstance = new Chart(
         document.getElementById("errorChart"),
         {
             type: 'pie',
             data: {
-                labels,
+                labels: Object.keys(data),
                 datasets: [{
-                    data: values,
-                    backgroundColor: [
-                        "#1e3a8a",
-                        "#2563eb",
-                        "#60a5fa",
-                        "#93c5fd",
-                        "#dbeafe",
-                        "#64748b"
-                    ]
+                    data: Object.values(data)
                 }]
             },
             options: {

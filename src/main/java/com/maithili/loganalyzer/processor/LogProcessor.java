@@ -10,12 +10,14 @@ import java.util.regex.Pattern;
 @Component
 public class LogProcessor {
 
-    // return code pattern:
-    // supports:
-    // return code: 88
-    // return code from java: 111
     private static final Pattern RC_PATTERN =
             Pattern.compile("(?i)return\\s*code[^\\d]*(\\d+)");
+
+    private static final Pattern CLASS_PATTERN =
+            Pattern.compile("at\\s+([a-zA-Z0-9_.]+)\\.");
+
+    private static final Pattern EXCEPTION_PATTERN =
+            Pattern.compile("([a-zA-Z0-9_.]*Exception)");
 
     public List<Issue> processLogs(List<String> lines,
                                    String fileName,
@@ -23,104 +25,126 @@ public class LogProcessor {
 
         List<Issue> issues = new ArrayList<>();
 
-        if (lines == null || lines.isEmpty()) {
-            return issues;
-        }
+        List<String> block = new ArrayList<>();
+        Integer code = null;
+
+        boolean capturing = false;
 
         for (String line : lines) {
 
-            if (line == null) continue;
+            if (line == null || line.trim().isEmpty()) continue;
 
-            Integer code = detectCustomErrorCode(line);
+            Integer extractedCode = extractReturnCode(line);
 
-            // fallback to return-code extraction
-            if (code == null) {
-                code = extractReturnCode(line);
+            // ----------------------------
+            // START BLOCK ON STACKTRACE
+            // ----------------------------
+            if (isStackLine(line)) {
+                capturing = true;
+                block.add(line);
+                continue;
             }
 
-            // ignore if nothing found or success
-            if (code == null || code == 0) continue;
+            // ----------------------------
+            // CAPTURE RETURN CODE (END)
+            // ----------------------------
+            if (capturing && extractedCode != null) {
 
-            // count occurrences
-            codeCount.put(code, codeCount.getOrDefault(code, 0) + 1);
+                code = extractedCode;
 
-            Issue issue = new Issue();
+                block.add(line);
 
-            // 🔥 IMPORTANT: attach file name for UI drill-down
-            issue.setFileName(fileName);
+                issues.add(buildIssue(block, fileName, code));
 
-            issue.setLogLine(line);
-            issue.setErrorCode(code);
+                block.clear();
+                capturing = false;
+                code = null;
 
-            switch (code) {
-
-                case 45:
-                    issue.setSeverity("MEDIUM");
-                    issue.setMessage("E4ALL Configuration Issue / Connection Issue");
-                    break;
-
-                case 88:
-                    issue.setSeverity("MEDIUM");
-                    issue.setMessage("Server Issue");
-                    break;
-
-                case 111:
-                    issue.setSeverity("CRITICAL");
-                    issue.setMessage("Code issue");
-                    break;
-
-                case 55:
-                    issue.setSeverity("CRITICAL");
-                    issue.setMessage("Code issue");
-                    break;
-
-                default:
-                    issue.setSeverity("UNKNOWN");
-                    issue.setMessage("Unhandled error code");
-                    break;
+                continue;
             }
 
-            issues.add(issue);
+            // ----------------------------
+            // CONTINUE BLOCK
+            // ----------------------------
+            if (capturing) {
+                block.add(line);
+            }
+        }
+
+        for (Issue i : issues) {
+            codeCount.put(
+                    i.getErrorCode(),
+                    codeCount.getOrDefault(i.getErrorCode(), 0) + 1
+            );
         }
 
         return issues;
     }
 
-    /**
-     * Custom rule-based detection (highest priority)
-     */
-    private Integer detectCustomErrorCode(String line) {
+    // -------------------------
+    // ISSUE BUILDER
+    // -------------------------
+    private Issue buildIssue(List<String> block,
+                             String fileName,
+                             Integer code) {
 
-        if (line == null) return null;
+        Issue issue = new Issue();
 
-        String lower = line.toLowerCase();
+        issue.setFileName(fileName);
+        issue.setLogLine(String.join(" | ", block));
 
-        // Rule: E4ALL config issue → 45
-        if (lower.contains("e4all configs list not found")) {
-            return 45;
-        }
+        int finalCode = (code != null) ? code : 999;
 
-        return null;
-    }
+        issue.setErrorCode(finalCode);
+        issue.setSeverity(mapSeverity(finalCode));
 
-    /**
-     * Extract return code from logs
-     * Example:
-     * return code: 88
-     * return code from java: 111
-     */
-    private Integer extractReturnCode(String line) {
+        String className = "Unknown";
+        String exception = "None";
 
-        Matcher matcher = RC_PATTERN.matcher(line);
+        for (String l : block) {
 
-        if (matcher.find()) {
-            try {
-                return Integer.parseInt(matcher.group(1));
-            } catch (Exception e) {
-                return null;
+            Matcher cm = CLASS_PATTERN.matcher(l);
+            if (cm.find()) {
+                className = cm.group(1);
+            }
+
+            Matcher em = EXCEPTION_PATTERN.matcher(l);
+            if (em.find()) {
+                exception = em.group(1);
+            }
+
+            if (l.startsWith("Caused by")) {
+                exception = l.replace("Caused by:", "").trim();
             }
         }
 
-        return null;
+        issue.setClassName(className);
+        issue.setExceptionType(exception);
+
+        return issue;
+    }
+
+    private boolean isStackLine(String line) {
+        return line.startsWith("\tat ")
+                || line.startsWith("Caused by")
+                || line.contains(".java:");
+    }
+
+    private Integer extractReturnCode(String line) {
+        Matcher matcher = RC_PATTERN.matcher(line);
+        return matcher.find() ? Integer.parseInt(matcher.group(1)) : null;
+    }
+
+    private String mapSeverity(int code) {
+        switch (code) {
+            case 45:
+            case 88:
+                return "MEDIUM";
+            case 111:
+            case 55:
+                return "CRITICAL";
+            default:
+                return "UNKNOWN";
+        }
     }
 }

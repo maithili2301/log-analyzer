@@ -29,6 +29,7 @@ public class LogService {
         Map<Integer, Integer> codeCount = new HashMap<>();
 
         try {
+        	logIndexService.clear();
             for (MultipartFile file : files) {
 
                 BufferedReader reader =
@@ -70,7 +71,7 @@ public class LogService {
     public AnalysisResponse analyzeFromUrl(String fileUrl) {
 
         List<Issue> issues;
-        //clean build if getting error
+        //clean build if getting error 
         Map<Integer,Integer> codeCount = new HashMap<>();
 
         try {

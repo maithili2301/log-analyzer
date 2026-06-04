@@ -164,4 +164,10 @@ public class LogIndexService {
     public Map<String, List<Issue>> getAllIssues() {
         return fileToIssues;
     }
+    public void clear() {
+        codeToFiles.clear();
+        fileToIssues.clear();
+        fileContent.clear();
+        fileNameMap.clear();
+    }
 }
