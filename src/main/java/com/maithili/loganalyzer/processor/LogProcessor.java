@@ -172,6 +172,7 @@ public class LogProcessor {
             case 88:
                 return "MEDIUM";
             case 111:
+            	return "CRITICAL";
             case 55:
                 return "CRITICAL";
             default:
